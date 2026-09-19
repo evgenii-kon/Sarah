@@ -2,10 +2,14 @@ import json
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from characters import CHARACTERS
+from database import get_session
+from models import Chat, Message
 
 router = APIRouter()
 
@@ -56,6 +60,7 @@ class ChatRequest(BaseModel):
     message: str
     character: Literal["sarah", "jake"]
     history: list[HistoryMessage] = []
+    chat_id: int | None = None
 
 
 class ErrorItem(BaseModel):
@@ -64,14 +69,24 @@ class ErrorItem(BaseModel):
     explanation: str
 
 
-class ChatResponse(BaseModel):
+class LLMReply(BaseModel):
     reply: str
     errors: list[ErrorItem]
     corrected_message: str
 
 
+class ChatResponse(LLMReply):
+    chat_id: int
+
+
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, session: AsyncSession = Depends(get_session)):
+    chat_row = None
+    if request.chat_id is not None:
+        chat_row = await session.get(Chat, request.chat_id)
+        if chat_row is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
     character_name = CHARACTERS[request.character]["name"]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(character=character_name)
 
@@ -99,6 +114,26 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=502, detail="Model returned invalid JSON")
 
     try:
-        return ChatResponse(**parsed)
+        llm_reply = LLMReply(**parsed)
     except Exception:
         raise HTTPException(status_code=502, detail="Model response did not match expected schema")
+
+    if chat_row is None:
+        chat_row = Chat(character=request.character)
+        session.add(chat_row)
+    if chat_row.title is None:
+        chat_row.title = request.message[:50]
+    chat_row.updated_at = func.now()
+
+    chat_row.messages.append(
+        Message(
+            role="user",
+            content=request.message,
+            errors=[e.model_dump() for e in llm_reply.errors],
+            corrected_message=llm_reply.corrected_message,
+        )
+    )
+    chat_row.messages.append(Message(role="assistant", content=llm_reply.reply))
+    await session.commit()
+
+    return ChatResponse(**llm_reply.model_dump(), chat_id=chat_row.id)

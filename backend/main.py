@@ -5,7 +5,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import chat, audio
+from routers import chat, chats, audio
 
 app = FastAPI(title="Sarah API")
 
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(chat.router)
+app.include_router(chats.router)
 app.include_router(audio.router)
 
 
