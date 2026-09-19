@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+anthropic
+openai-whisper
+httpx
+python-multipart
+python-dotenv
