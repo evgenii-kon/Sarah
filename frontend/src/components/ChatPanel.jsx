@@ -9,6 +9,7 @@ export default function ChatPanel({
   messages,
   activeChar,
   loading,
+  onUserMessage,
   onExchangeComplete,
   onExchangeError,
   onSystemMessage,
@@ -29,6 +30,7 @@ export default function ChatPanel({
   }, [messages, sending, loading])
 
   async function sendText(text) {
+    const messageId = onUserMessage(text)
     setSending(true)
     try {
       const res = await fetch(`${API_URL}/chat`, {
@@ -41,13 +43,13 @@ export default function ChatPanel({
 
       onExchangeComplete({
         character: activeChar,
-        userText: text,
+        messageId,
         errors: data.errors ?? [],
         correctedMessage: data.corrected_message ?? text,
         reply: data.reply ?? '',
       })
     } catch {
-      onExchangeError({ character: activeChar, userText: text })
+      onExchangeError({ messageId })
     } finally {
       setSending(false)
     }

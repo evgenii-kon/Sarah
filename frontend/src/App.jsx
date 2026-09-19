@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Header from './components/Header.jsx'
 import ChatPanel from './components/ChatPanel.jsx'
 import CallPanel from './components/CallPanel.jsx'
@@ -14,8 +14,6 @@ export default function App() {
   const [messages, setMessages] = useState([])
   const [activeChar, setActiveChar] = useState('jake')
   const [greeting, setGreeting] = useState(false)
-  const activeCharRef = useRef(activeChar)
-  activeCharRef.current = activeChar
 
   useEffect(() => {
     const controller = new AbortController()
@@ -50,22 +48,30 @@ export default function App() {
     return () => controller.abort()
   }, [activeChar])
 
-  function handleExchangeComplete({ character, userText, errors, correctedMessage, reply }) {
-    if (character !== activeCharRef.current) return
-    setMessages((prev) => [
-      ...prev,
-      { id: nextId++, role: 'user', text: userText, errors, correctedMessage },
-      { id: nextId++, role: 'ai', sender: CHARACTERS[character].name, text: reply },
-    ])
+  function handleUserMessage(text) {
+    const id = nextId++
+    setMessages((prev) => [...prev, { id, role: 'user', text, errors: [] }])
+    return id
   }
 
-  function handleExchangeError({ character, userText }) {
-    if (character !== activeCharRef.current) return
-    setMessages((prev) => [
-      ...prev,
-      { id: nextId++, role: 'user', text: userText, errors: [], correctedMessage: userText },
-      { id: nextId++, role: 'system', text: 'Failed to reach the server. Please try again.' },
-    ])
+  function handleExchangeComplete({ character, messageId, errors, correctedMessage, reply }) {
+    setMessages((prev) => {
+      if (!prev.some((m) => m.id === messageId)) return prev
+      return [
+        ...prev.map((m) => (m.id === messageId ? { ...m, errors, correctedMessage } : m)),
+        { id: nextId++, role: 'ai', sender: CHARACTERS[character].name, text: reply },
+      ]
+    })
+  }
+
+  function handleExchangeError({ messageId }) {
+    setMessages((prev) => {
+      if (!prev.some((m) => m.id === messageId)) return prev
+      return [
+        ...prev,
+        { id: nextId++, role: 'system', text: 'Failed to reach the server. Please try again.' },
+      ]
+    })
   }
 
   function handleSystemMessage(text) {
@@ -81,6 +87,7 @@ export default function App() {
           messages={messages}
           activeChar={activeChar}
           loading={greeting}
+          onUserMessage={handleUserMessage}
           onExchangeComplete={handleExchangeComplete}
           onExchangeError={handleExchangeError}
           onSystemMessage={handleSystemMessage}

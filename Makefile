@@ -1,4 +1,4 @@
-.PHONY: install run-backend run-frontend run dev
+.PHONY: install run-backend run-frontend dev
 
 # Установка зависимостей
 install:
@@ -7,12 +7,14 @@ install:
 
 # Запуск бэкенда
 run-backend:
-	cd backend && uvicorn main:app --reload --port 8000
+	cd backend && ../venv/bin/uvicorn main:app --reload --port 8000
 
 # Запуск фронтенда
 run-frontend:
 	cd frontend && npm run dev
 
-# Запуск обоих одновременно
+# Запуск всего одной командой
 dev:
-	make run-backend & make run-frontend
+	ollama serve & \
+	cd backend && ../venv/bin/uvicorn main:app --reload --port 8000 & \
+	cd frontend && npm run dev
