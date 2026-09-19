@@ -1,21 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { CHARACTERS } from '../characters.js'
-
-function formatTime(totalSeconds) {
-  const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0')
-  const s = (totalSeconds % 60).toString().padStart(2, '0')
-  return `${m}:${s}`
-}
 
 export default function CallPanel({ activeChar }) {
   const char = CHARACTERS[activeChar]
-  const [seconds, setSeconds] = useState(0)
   const [muted, setMuted] = useState(false)
-
-  useEffect(() => {
-    const id = setInterval(() => setSeconds((s) => s + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
 
   return (
     <div className="call-panel">
@@ -28,12 +16,6 @@ export default function CallPanel({ activeChar }) {
       </div>
       <div className="char-name">{char.name}</div>
       <div className="char-desc" dangerouslySetInnerHTML={{ __html: char.descHtml }} />
-      <div className="waveform">
-        {Array.from({ length: 10 }).map((_, i) => (
-          <div key={i} className="wave-bar" />
-        ))}
-      </div>
-      <div className="call-timer">{formatTime(seconds)}</div>
       <div className="call-controls">
         <button
           className={`ctrl-btn ctrl-mute${muted ? ' active' : ''}`}

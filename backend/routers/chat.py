@@ -1,8 +1,7 @@
 import json
-import os
 from typing import Literal
 
-import anthropic
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -10,28 +9,41 @@ from characters import CHARACTERS
 
 router = APIRouter()
 
-MODEL = "claude-sonnet-4-5"
+OLLAMA_URL = "http://localhost:11434/api/chat"
+MODEL = "llama3.2"
 
 SYSTEM_PROMPT_TEMPLATE = """\
-Ты дружелюбный носитель английского языка по имени {character}.
-Твоя задача — вести живой разговор с пользователем который учит английский.
+You are {character}, a friendly native English speaker.
+Your job is to have a lively, natural conversation with a user who is learning English.
 
-После каждого сообщения пользователя ты должен вернуть JSON:
+After every user message you must return a JSON object with exactly these fields:
+- "reply": your response to the user as a conversation partner
+- "errors": a list of grammar errors found in the user's message
+- "corrected_message": the corrected version of the user's message
+
+Each item in "errors" must have this shape:
+- "original": the fragment of the user's message that contains the mistake
+- "correction": the corrected fragment
+- "explanation": a short explanation of the mistake
+
+Strict rules:
+- Write "reply" and "explanation" ONLY in English. Never use any other language.
+- "errors" must NEVER be empty if the user's message contains any grammar mistakes. List every mistake you find.
+- If there are no mistakes, return "errors" as an empty array [] and "corrected_message" equal to the user's message.
+- Return ONLY valid JSON, with no markdown, no code fences and no extra text.
+
+Example of a valid response:
 {{
-  "reply": "твой ответ как собеседник",
-  "errors": [список грамматических ошибок если есть],
-  "corrected_message": "исправленная версия сообщения пользователя"
+  "reply": "Great effort! Keep practicing.",
+  "errors": [
+    {{
+      "original": "from three months",
+      "correction": "for three months",
+      "explanation": "Use 'for' with periods of time"
+    }}
+  ],
+  "corrected_message": "I have been studying English for three months."
 }}
-
-Каждый элемент в errors должен иметь вид:
-{{
-  "original": "фрагмент с ошибкой",
-  "correction": "исправленный фрагмент",
-  "explanation": "краткое объяснение ошибки"
-}}
-
-Если ошибок нет — errors возвращай пустым массивом [].
-Отвечай только валидным JSON, без markdown, без пояснений.
 """
 
 
@@ -58,36 +70,28 @@ class ChatResponse(BaseModel):
     corrected_message: str
 
 
-_client = None
-
-
-def get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY is not set")
-        _client = anthropic.Anthropic(api_key=api_key)
-    return _client
-
-
 @router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest):
+async def chat(request: ChatRequest):
     character_name = CHARACTERS[request.character]["name"]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(character=character_name)
 
-    messages = [{"role": m.role, "content": m.content} for m in request.history]
+    messages = [{"role": "system", "content": system_prompt}]
+    messages += [{"role": m.role, "content": m.content} for m in request.history]
     messages.append({"role": "user", "content": request.message})
 
-    client = get_client()
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        system=system_prompt,
-        messages=messages,
-    )
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.post(
+                OLLAMA_URL,
+                json={"model": MODEL, "messages": messages, "stream": False, "format": "json"},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Ollama is not reachable at localhost:11434")
 
-    raw_text = "".join(block.text for block in response.content if block.type == "text")
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Ollama returned status {response.status_code}")
+
+    raw_text = response.json().get("message", {}).get("content", "")
 
     try:
         parsed = json.loads(raw_text)
